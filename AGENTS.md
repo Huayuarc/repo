@@ -1,5 +1,9 @@
 # AGENTS.md
 
+仓库：`Huayuarc/repo`（https://github.com/Huayuarc/repo），源地址 `https://huayuarc.github.io/repo/`。
+发布走的流程：GitHub `debs/` 中转 → Actions 上传 Cloudflare R2 → 重建索引并提交 → 删除中转文件。
+旧源是 `Huayuarc/huayuarc.github.io`（约 7 GB，不要克隆），迁移用 `migrate.yml`。
+
 这是一个 **Debian/APT 软件源仓库**（越狱插件源），不是 tweak 项目：没有 `apelin-project.json` 的构建描述，
 也不需要 Theos 或任何编译器。所有工作都在 Python 脚本和 GitHub Actions 里。
 
