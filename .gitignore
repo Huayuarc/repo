@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.publish-report.json
+_site/
+.DS_Store
+*.tmp

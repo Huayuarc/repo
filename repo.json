@@ -1,0 +1,10 @@
+{
+  "origin": "Huayuarc",
+  "label": "Huayuarc Repo",
+  "description": "Huayuarc 插件源 · R2 直连",
+  "suite": "stable",
+  "codename": "ios",
+  "siteURL": "https://huayuarc.github.io/repo",
+  "mirrorSource": "https://huayuarc.github.io",
+  "publicBaseURL": ""
+}

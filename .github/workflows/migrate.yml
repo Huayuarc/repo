@@ -1,0 +1,81 @@
+name: 从旧源迁移
+
+# 一次性任务：把旧源（repo.json 里的 mirrorSource）现有的 deb 下载下来、搬进 R2，
+# 并生成 packages/ 管理记录，之后旧源就可以停用了。
+
+on:
+  workflow_dispatch:
+    inputs:
+      all_versions:
+        description: 搬所有历史版本（默认只搬每个插件/架构的最新版）
+        type: boolean
+        default: false
+      limit:
+        description: 本次最多搬几个文件（0 = 不限）
+        type: number
+        default: 0
+      dry_run:
+        description: 只列出会搬什么，不下载、不上传
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+
+concurrency:
+  group: repo-publish
+  cancel-in-progress: false
+
+jobs:
+  migrate:
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装依赖
+        run: python3 -m pip install --quiet --disable-pip-version-check boto3
+
+      - name: 迁移
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_PUBLIC_URL: ${{ vars.R2_PUBLIC_URL }}
+          ALL_VERSIONS: ${{ inputs.all_versions }}
+          LIMIT: ${{ inputs.limit }}
+          DRY_RUN: ${{ inputs.dry_run }}
+        run: |
+          set -e
+          ARGS=""
+          if [ "$ALL_VERSIONS" = "true" ]; then ARGS="$ARGS --all"; fi
+          if [ "$LIMIT" != "0" ] && [ -n "$LIMIT" ]; then ARGS="$ARGS --limit $LIMIT"; fi
+          if [ "$DRY_RUN" = "true" ]; then ARGS="$ARGS --dry-run"; fi
+          python3 scripts/repo.py mirror $ARGS
+
+      - name: 重建索引
+        run: python3 scripts/repo.py index
+
+      - name: 提交记录
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A packages registry.json Packages Packages.gz Release .nojekyll
+          if git diff --cached --quiet; then
+            echo "没有需要提交的变化"
+            exit 0
+          fi
+          git commit -m "迁移：从旧源搬入 $(date -u '+%Y-%m-%d %H:%M UTC') [skip ci]"
+          git push
+
+      - name: 确认站点已更新
+        continue-on-error: true
+        env:
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: python3 scripts/repo.py verify-site --wait 9

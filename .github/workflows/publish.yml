@@ -1,0 +1,78 @@
+name: 发布插件
+
+# 上传 deb 到 debs/ 就会触发：
+#   校验 → 上传 R2 → 记录写入 packages/ → 重建索引 → 提交并删除 GitHub 上的中转文件
+# 任何一步失败都不会删除中转文件，修好后重新推一次即可。
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'debs/**.deb'
+      - 'packages/**.json'
+      - 'registry.json'
+      - 'orphans.json'
+      - 'scripts/**'
+      - 'repo.json'
+      - '.github/workflows/publish.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: repo-publish
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: 安装依赖
+        run: python3 -m pip install --quiet --disable-pip-version-check boto3
+
+      - name: 校验并上传到 R2
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+          R2_PUBLIC_URL: ${{ vars.R2_PUBLIC_URL }}
+        run: python3 scripts/repo.py publish
+
+      - name: 重建索引
+        run: python3 scripts/repo.py index
+
+      - name: 下架保护期巡检
+        continue-on-error: true
+        env:
+          R2_ACCOUNT_ID: ${{ secrets.R2_ACCOUNT_ID }}
+          R2_ACCESS_KEY_ID: ${{ secrets.R2_ACCESS_KEY_ID }}
+          R2_SECRET_ACCESS_KEY: ${{ secrets.R2_SECRET_ACCESS_KEY }}
+          R2_BUCKET: ${{ secrets.R2_BUCKET }}
+        run: python3 scripts/repo.py sweep
+
+      - name: 保存记录、清理中转文件
+        run: |
+          set -e
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A debs packages registry.json orphans.json Packages Packages.gz Release .nojekyll
+          if git diff --cached --quiet; then
+            echo "没有需要提交的变化"
+            exit 0
+          fi
+          git commit -m "源更新：自动发布 $(date -u '+%Y-%m-%d %H:%M UTC') [skip ci]"
+          git push
+
+      - name: 确认站点已更新
+        env:
+          SITE_URL: ${{ vars.SITE_URL }}
+        run: python3 scripts/repo.py verify-site --wait 9
